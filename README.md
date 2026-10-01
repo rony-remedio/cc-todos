@@ -26,7 +26,7 @@ a `todo` tool for the model, a live task band above the prompt, and `/todos`.
 The repo is its own plugin marketplace (`.claude-plugin/marketplace.json`):
 
 ```sh
-claude plugin marketplace add <owner>/cc-todos   # a GitHub repo, a git URL or a local path
+claude plugin marketplace add gal-leib/cc-todos
 claude plugin install todos@cc-todos
 ```
 
