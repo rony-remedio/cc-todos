@@ -21,10 +21,22 @@ a `todo` tool for the model, a live task band above the prompt, and `/todos`.
 - The built-in `TodoWrite` / `Task*` list tools are refused with a pointer to `todo`, so there is one plan.
 - State lives in the session (`$.state`): it survives hot reloads and compaction, and `/clear` resets it.
 
+## Install
+
+The repo is its own plugin marketplace (`.claude-plugin/marketplace.json`):
+
+```sh
+claude plugin marketplace add <owner>/cc-todos   # a GitHub repo, a git URL or a local path
+claude plugin install todos@cc-todos
+```
+
+Then restart Claude Code. Pick up new versions with `claude plugin marketplace update cc-todos`
+and `claude plugin update todos@cc-todos`; bump `version` in both manifests when you release.
+
 ## Develop
 
 ```sh
-claude plugin validate .
+claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
-claude --plugin-dir /home/dev/work/cc-todos   # load it in any session
+claude --plugin-dir /path/to/cc-todos   # load the working copy in a session, reloading on save
 ```

@@ -1,0 +1,13 @@
+{
+  "name": "cc-todos",
+  "owner": { "name": "Gal Leibovici" },
+  "metadata": { "description": "The todos mod for Claude Code" },
+  "plugins": [
+    {
+      "name": "todos",
+      "source": "./",
+      "description": "A todo tool for the model, a live task band above the prompt, and /todos (after rpiv-todo for Pi)",
+      "version": "0.1.0"
+    }
+  ]
+}

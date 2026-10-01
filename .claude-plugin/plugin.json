@@ -2,5 +2,6 @@
   "name": "todos",
   "version": "0.1.0",
   "description": "A todo tool for the model, a live task band above the prompt, and /todos (after rpiv-todo for Pi)",
+  "author": { "name": "Gal Leibovici" },
   "types": "./types/index.d.ts"
 }
