@@ -2,14 +2,14 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { Task } from '../types'
-import { apply, EMPTY, layout, report } from './tasks'
+import { apply, chains, EMPTY, isOpen, layout, report } from './tasks'
 import type { TaskParams } from './tasks'
 
 const TOOL = 'mcp__todos__todo'
 const MAX_ROWS = 12
 
 const list = atom({ plugin: 'todos', key: 'list' } as const, EMPTY)
-const faded = atom({ plugin: 'todos', key: 'faded' } as const, [])
+const hideCompleted = atom({ plugin: 'todos', key: 'hideCompleted' } as const, false)
 
 // The built-in list tools would split the plan in two; they point the model here.
 const BUILTIN_LISTS = ['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet']
@@ -23,6 +23,7 @@ Actions: create (new task), update (change status/fields/dependencies), list (al
 - Status is pending → in_progress → completed, plus deleted as a tombstone. Pass activeForm (present-continuous, e.g. "writing tests") when marking in_progress.
 - To change status: {"action":"update","id":3,"status":"completed"} or {"action":"update","id":3,"status":"in_progress","activeForm":"writing tests"}. An update with no mutable field is rejected.
 - Dependencies: blockedBy on create; addBlockedBy / removeBlockedBy on update (additive, do not resend the full array). Cycles are rejected.
+- A create while no task is pending or in_progress starts a new list at #1 and drops the finished one, so ids remembered from it no longer apply.
 - list hides deleted tasks unless includeDeleted:true; pass status to filter.
 - subject is short and imperative ("Research existing tool"); description holds long-form detail.`
 
@@ -75,9 +76,6 @@ export const register: Register = on => {
       text = out.text
       return out.state
     })
-    // ids restart at 1 after a clear, so an old faded id would hide a new task.
-    if (params.action === 'clear') await update($, faded, () => [])
-
     return { result: text }
   })
 
@@ -87,10 +85,11 @@ export const register: Register = on => {
       : next(e),
   )
 
-  // A completed row stays for the rest of the turn it was completed in.
+  // Completed rows stay struck through while the list has open work, and fade
+  // one turn after the last task is done.
   on('turn.start', async ($, e, next) => {
     const { tasks } = await read($, list)
-    await update($, faded, () => tasks.filter(t => t.status === 'completed').map(t => t.id))
+    await update($, hideCompleted, () => !tasks.some(isOpen))
 
     return next(e)
   })
@@ -98,7 +97,7 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       await update($, list, () => EMPTY)
-      await update($, faded, () => [])
+      await update($, hideCompleted, () => false)
     }
 
     return next(e)
@@ -110,20 +109,22 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return next(e)
 
     const { tasks } = await read($, list)
-    const hidden = new Set(await read($, faded))
-    const shown = tasks.filter(t => t.status !== 'deleted' && !hidden.has(t.id))
+    // The flag is set at turn start, so a list opened later in that turn overrides it.
+    const hide = !tasks.some(isOpen) && (await read($, hideCompleted))
+    const shown = tasks.filter(t => t.status !== 'deleted' && !(hide && t.status === 'completed'))
     if (shown.length === 0) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const done = shown.filter(t => t.status === 'completed').length
     const isActive = done < shown.length
-    const showIds = shown.some(t => t.blockedBy?.length)
     // Heading and the trailing spacer take a row each.
     const rows = Math.max(3, Math.min(MAX_ROWS, e.props.maxRows - 1))
     const { visible, hiddenCompleted, truncatedTail } = layout(shown, rows - 1)
     const more = hiddenCompleted + truncatedTail
+    const blockers = chains(visible, tasks)
+    const showIds = blockers.some(b => b.length)
 
-    const row = (t: Task, isLast: boolean) => {
+    const row = (t: Task, chain: number[], isLast: boolean) => {
       const isDone = t.status === 'completed'
       return (
         <Text wrap="truncate-end">
@@ -134,7 +135,7 @@ export const register: Register = on => {
             {t.subject}
           </Text>
           {t.status === 'in_progress' && t.activeForm && <Text dimColor> ({t.activeForm})</Text>}
-          {!!t.blockedBy?.length && <Text dimColor> ⛓ {t.blockedBy.map(n => `#${n}`).join(',')}</Text>}
+          {chain.length > 0 && <Text dimColor> ⛓ {chain.map(n => `#${n}`).join(',')}</Text>}
         </Text>
       )
     }
@@ -148,7 +149,7 @@ export const register: Register = on => {
         <Text color={isActive ? 'claude' : undefined} dimColor={!isActive}>
           {isActive ? '●' : '○'} Todos ({done}/{shown.length})
         </Text>
-        {visible.map((t, i) => row(t, more === 0 && i === visible.length - 1))}
+        {visible.map((t, i) => row(t, blockers[i]!, more === 0 && i === visible.length - 1))}
         {more > 0 && (
           <Text dimColor wrap="truncate-end">
             └─ +{more} more ({summary.join(', ')})

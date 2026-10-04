@@ -7,7 +7,7 @@
       "name": "todos",
       "source": "./",
       "description": "A todo tool for the model, a live task band above the prompt, and /todos (after rpiv-todo for Pi)",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

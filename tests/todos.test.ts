@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { apply, EMPTY, layout } from '../hooks/tasks'
+import type { Task } from '../types'
+import { apply, chains, EMPTY, layout } from '../hooks/tasks'
 
 const TOOL = 'mcp__todos__todo'
 
@@ -94,20 +95,52 @@ test('the todo tool feeds the band and /todos', async ($, on) => {
   expect(text).toContain('◐ #1 Write the reducer (writing it)')
 })
 
-test('a completed row fades at the next turn', async ($, on) => {
+test('completed rows stay until the list is done, then fade at the next turn', async ($, on) => {
   await start($, on)
   await call($, { action: 'create', subject: 'One' })
   await call($, { action: 'create', subject: 'Two' })
   await call($, { action: 'update', id: 1, status: 'completed' })
 
-  let ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
-  expect(await lines(ui)).toEqual(['● Todos (1/2)', '├─ ✓ One', '└─ ○ Two', ' '])
-  await ui.unmount()
-
+  const band = async () => {
+    const ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
+    const out = await lines(ui)
+    await ui.unmount()
+    return out
+  }
   await $.turn.start({ text: 'next', turnId: 't2' })
-  ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
-  expect(await lines(ui)).toEqual(['● Todos (0/1)', '└─ ○ Two', ' '])
-  await ui.unmount()
+  expect(await band()).toEqual(['● Todos (1/2)', '├─ ✓ One', '└─ ○ Two', ' '])
+
+  await call($, { action: 'update', id: 2, status: 'completed' })
+  expect(await band()).toEqual(['○ Todos (2/2)', '├─ ✓ One', '└─ ✓ Two', ' '])
+  await $.turn.start({ text: 'next', turnId: 't3' })
+  expect(await band()).toEqual([])
+
+  expect((await call($, { action: 'create', subject: 'Three' })).result).toBe(
+    'Created #1: Three (pending). Started a new list: earlier task ids no longer apply.',
+  )
+  await call($, { action: 'create', subject: 'Four' })
+  await call($, { action: 'update', id: 1, status: 'completed' })
+  expect(await band()).toEqual(['● Todos (1/2)', '├─ ✓ Three', '└─ ○ Four', ' '])
+})
+
+test('ids restart at #1 once nothing is open, and a failed create keeps the list', () => {
+  let s = apply(EMPTY, { action: 'create', subject: 'A' }).state
+  s = apply(s, { action: 'create', subject: 'B' }).state
+  s = apply(s, { action: 'delete', id: 1 }).state
+  expect(apply(s, { action: 'create', subject: 'C' }).text).toBe('Created #3: C (pending)')
+  s = apply(s, { action: 'update', id: 2, status: 'completed' }).state
+  expect(apply(s, { action: 'create', subject: 'C', blockedBy: [2] }).state).toBe(s)
+  expect(apply(s, { action: 'create', subject: 'C' }).state).toEqual({
+    tasks: [{ id: 1, subject: 'C', status: 'pending' }],
+    nextId: 2,
+  })
+})
+
+test('the band drops blocker ids that the order or a finished task already explains', () => {
+  const t = (id: number, status: Task['status'], blockedBy?: number[]) => ({ id, subject: `t${id}`, status, blockedBy })
+  const tasks = [t(1, 'in_progress'), t(2, 'pending', [1]), t(3, 'pending', [1, 2]), t(4, 'pending', [5]), t(5, 'pending')]
+  expect(chains(tasks, tasks)).toEqual([[], [], [], [5], []])
+  expect(chains(tasks.slice(1), [{ ...tasks[0]!, status: 'completed' }, ...tasks.slice(1)])).toEqual([[], [], [5], []])
 })
 
 test('the built-in list tools point at the todo tool', async $ => {

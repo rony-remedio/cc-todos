@@ -16,8 +16,8 @@ declare module 'claude-code' {
   interface PluginState {
     todos: {
       list: TaskState
-      // Completed ids already shown for a full turn; the band drops them.
-      faded: number[]
+      // Set at a turn start that finds no open task; the band then drops completed rows.
+      hideCompleted: boolean
     }
   }
 }

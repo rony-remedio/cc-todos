@@ -26,6 +26,8 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   deleted: [],
 }
 
+export const isOpen = (t: Task) => t.status === 'pending' || t.status === 'in_progress'
+
 const isTransitionValid = (from: TaskStatus, to: TaskStatus) =>
   from === to || TRANSITIONS[from].includes(to)
 
@@ -75,19 +77,23 @@ export function apply(state: TaskState, p: TaskParams): { state: TaskState; text
   switch (p.action) {
     case 'create': {
       if (!p.subject?.trim()) return fail('subject required for create')
+      // Nothing open means the last list is done: a new one starts again at #1.
+      const base = state.tasks.some(isOpen) ? state : EMPTY
       for (const dep of p.blockedBy ?? []) {
-        const depTask = state.tasks.find(t => t.id === dep)
+        const depTask = base.tasks.find(t => t.id === dep)
         if (!depTask) return fail(`blockedBy: #${dep} not found`)
         if (depTask.status === 'deleted') return fail(`blockedBy: #${dep} is deleted`)
       }
-      const task: Task = { id: state.nextId, subject: p.subject, status: 'pending' }
+      const task: Task = { id: base.nextId, subject: p.subject, status: 'pending' }
       if (p.description) task.description = p.description
       if (p.activeForm) task.activeForm = p.activeForm
       if (p.blockedBy?.length) task.blockedBy = [...p.blockedBy]
       if (p.owner) task.owner = p.owner
       return {
-        state: { tasks: [...state.tasks, task], nextId: state.nextId + 1 },
-        text: `Created #${task.id}: ${task.subject} (pending)`,
+        state: { tasks: [...base.tasks, task], nextId: base.nextId + 1 },
+        text:
+          `Created #${task.id}: ${task.subject} (pending)` +
+          (base !== state && state.tasks.length ? '. Started a new list: earlier task ids no longer apply.' : ''),
       }
     }
 
@@ -204,6 +210,18 @@ export function layout(tasks: readonly Task[], budget: number): Layout {
   const visible = tasks.filter(t => kept.has(t))
   const shown = visible.filter(t => t.status === 'completed').length
   return { visible, hiddenCompleted: totalCompleted - shown, truncatedTail: 0 }
+}
+
+/**
+ * The blockers each band row shows: open ones not drawn above it, since the
+ * band already reads top-down.
+ */
+export function chains(visible: readonly Task[], tasks: readonly Task[]): number[][] {
+  const open = new Set(tasks.filter(isOpen).map(t => t.id))
+  return visible.map((t, i) => {
+    const above = new Set(visible.slice(0, i).map(v => v.id))
+    return (t.blockedBy ?? []).filter(n => open.has(n) && !above.has(n))
+  })
 }
 
 /** The `/todos` report, grouped by status. */
