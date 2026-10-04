@@ -121,6 +121,18 @@ test('completed rows stay until the list is done, then fade at the next turn', a
   await call($, { action: 'create', subject: 'Four' })
   await call($, { action: 'update', id: 1, status: 'completed' })
   expect(await band()).toEqual(['● Todos (1/2)', '├─ ✓ Three', '└─ ○ Four', ' '])
+  await call($, { action: 'update', id: 2, status: 'completed' })
+  expect(await band()).toEqual(['○ Todos (2/2)', '├─ ✓ Three', '└─ ✓ Four', ' '])
+})
+
+test('a list made and finished in one turn stays until the next turn', async ($, on) => {
+  await start($, on)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await call($, { action: 'create', subject: 'A' })
+  await call($, { action: 'update', id: 1, status: 'completed' })
+  const ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
+  expect(await lines(ui)).toEqual(['○ Todos (1/1)', '└─ ✓ A', ' '])
+  await ui.unmount()
 })
 
 test('ids restart at #1 once nothing is open, and a failed create keeps the list', () => {
@@ -129,7 +141,10 @@ test('ids restart at #1 once nothing is open, and a failed create keeps the list
   s = apply(s, { action: 'delete', id: 1 }).state
   expect(apply(s, { action: 'create', subject: 'C' }).text).toBe('Created #3: C (pending)')
   s = apply(s, { action: 'update', id: 2, status: 'completed' }).state
-  expect(apply(s, { action: 'create', subject: 'C', blockedBy: [2] }).state).toBe(s)
+  expect(apply(s, { action: 'create', subject: 'C', blockedBy: [2] })).toEqual({
+    state: s,
+    text: 'Error: nothing is open, so this create starts a new list at #1; blockedBy cannot name the finished list',
+  })
   expect(apply(s, { action: 'create', subject: 'C' }).state).toEqual({
     tasks: [{ id: 1, subject: 'C', status: 'pending' }],
     nextId: 2,
@@ -141,6 +156,21 @@ test('the band drops blocker ids that the order or a finished task already expla
   const tasks = [t(1, 'in_progress'), t(2, 'pending', [1]), t(3, 'pending', [1, 2]), t(4, 'pending', [5]), t(5, 'pending')]
   expect(chains(tasks, tasks)).toEqual([[], [], [], [5], []])
   expect(chains(tasks.slice(1), [{ ...tasks[0]!, status: 'completed' }, ...tasks.slice(1)])).toEqual([[], [], [5], []])
+})
+
+test('the band names a blocker only when the order does not show it', async ($, on) => {
+  await start($, on)
+  await call($, { action: 'create', subject: 'Plan' })
+  await call($, { action: 'create', subject: 'Build', blockedBy: [1] })
+  let ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
+  expect(await lines(ui)).toEqual(['● Todos (0/2)', '├─ ○ Plan', '└─ ○ Build', ' '])
+  await ui.unmount()
+
+  await call($, { action: 'create', subject: 'Review' })
+  await call($, { action: 'update', id: 1, addBlockedBy: [3] })
+  ui = await $.ui.mount({ plugin: 'todos', surface: 'terminal', ...BAND })
+  expect(await lines(ui)).toEqual(['● Todos (0/3)', '├─ ○ #1 Plan ⛓ #3', '├─ ○ #2 Build', '└─ ○ #3 Review', ' '])
+  await ui.unmount()
 })
 
 test('the built-in list tools point at the todo tool', async $ => {

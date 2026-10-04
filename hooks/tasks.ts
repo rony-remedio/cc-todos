@@ -79,6 +79,9 @@ export function apply(state: TaskState, p: TaskParams): { state: TaskState; text
       if (!p.subject?.trim()) return fail('subject required for create')
       // Nothing open means the last list is done: a new one starts again at #1.
       const base = state.tasks.some(isOpen) ? state : EMPTY
+      if (base !== state && state.tasks.length && p.blockedBy?.length) {
+        return fail('nothing is open, so this create starts a new list at #1; blockedBy cannot name the finished list')
+      }
       for (const dep of p.blockedBy ?? []) {
         const depTask = base.tasks.find(t => t.id === dep)
         if (!depTask) return fail(`blockedBy: #${dep} not found`)

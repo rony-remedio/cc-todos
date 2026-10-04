@@ -71,11 +71,15 @@ export const register: Register = on => {
       tool_use_id: string
     }
     let text = ''
+    let hasOpen = false
     await update($, list, state => {
       const out = apply(state, params)
       text = out.text
+      hasOpen = out.state.tasks.some(isOpen)
       return out.state
     })
+    // A list opened mid-turn keeps its completed rows until the next turn start.
+    if (hasOpen) await update($, hideCompleted, () => false)
     return { result: text }
   })
 
@@ -109,8 +113,7 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return next(e)
 
     const { tasks } = await read($, list)
-    // The flag is set at turn start, so a list opened later in that turn overrides it.
-    const hide = !tasks.some(isOpen) && (await read($, hideCompleted))
+    const hide = await read($, hideCompleted)
     const shown = tasks.filter(t => t.status !== 'deleted' && !(hide && t.status === 'completed'))
     if (shown.length === 0) return next(e)
 
